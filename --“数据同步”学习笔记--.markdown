@@ -1,0 +1,86 @@
+﻿# **“数据同步”学习笔记**
+
+标签（空格分隔）：  CoreData+iCloud 数据同步
+---
+  数据同步是软件开发中的一项基本要素，简单来说，如何存储时间和空间上分离的两部分数据，让这两部分的数据尽可能的相同。
+  
+## 简史 ##
+  就消费设备而言，数据同步始于有线连接。像iTunes那样，外围设备通过USB和Mac进行同步，后来，由于网速的提升，Wi-Fi和蓝牙逐渐增补了有线连接。
+  
+  到了21世纪，由于云服务的飞速发展，由Mac或者PC作为中心的方式已经逐步转向了云。云的优势在于无论在什么时候，只要有网络就可以完成数据同步。
+  
+  现在，出现了一种基于**异步通讯**（Asyncronnous Communication, AC）的数据同步方式。应用不在直接和云进行通话，而是和一个框架或者本地的文件系统进行数据交换，数据是在后台和云端进行的通讯。这种方式将应用程序代码和数据同步过程解耦，使得开发者不用专注于如何操纵数据同步。
+  
+##数据同步的几种方式##
+
++ 同步对等网络（Syncronous Peer-to-Peer, S-P2P）
+
+    像iTunes那样，外围设备通过USB和Mac进行同步的过程。S-P2P实现简单并且本地网络速度快。由于iTunes需要传输大量的媒体数据，所以依旧使用的是这种方式。
+
+    我们来想一下iTunes的同步机制，当iPhone第一次同步的时候，Mac应用将它所有的存储数据压缩，通过套接字将压缩后的文件传递给iPhone，然后iPhone解压、使用。现在假设用户对存储的对象进行了修改，该设备上的应用程序给该对象设置了一个boolean类型的标记，用来表示该对象是否更改过。当下一次同步发生的时候，iPhone将它的数据发送给Mac，Mac装载并且更新自己的数据，然后Mac将更新后的数据存储在发送给iPhone。
+    
++ 同步客户端服务器（Syncronous Client-Server, S-CS）
+
+    S-CS可能是当今最常用的同步方式。它和开发任何其他的web服务非常相似。一个自定义的云应用程序使用某种语言开发，该全栈式开发框架可能和客户端程序无关。这样的通讯方式会比本地网络慢，但是它可以保证，只要网络保持连接，客户端可以在任何位置同步数据。
+    假设数据存储在服务器上的数据库中，并且每一个对象都有一个最后更新的时间戳。当客户端第一次更新程序的时候，它以序列化的形式下载所有的数据，然后建立一个本地存储。它同样也在本地记录了同步的时间戳。 当客户端发生变化的时候，他会更新这个时间戳，服务器也会做同样的事情，其他设备也会在这个时期内同步。当下一次同步发生的时候，客户端会找到自上一次同步后被修改的对象发送给服务器。服务器会合并这些修改，并且保存最新的时间戳。
+    
++ 异步客户端服务器（Asyncronous Client-Server, A-CS）
+
+    开发者使用数据存储的API,存取备份在本地的数据。本地数据在后台与服务器发生数据同步，这样就可以在没有网络的时候应用程序也可以继续工作，并且开发者不用去关注通讯的细节。
+    
+    
+    
++ 异步对等网络 （Asyncronous Peer-to-Peer, A-P2P）
+
+    A-P2P将所有的数据都分发到客户端程序上，并且不直接通讯。每个设备都有一份完整的数据存储备份。通过交换不同设备之间的文件的变化来实现数据同步，事务日志被上传到云端，然后云端通过一个文件处理服务器分发给其他设备。
+
+    作为一个应用程序开发者，你不需要过多关心一个 A-P2P 系统是如何工作的 — 错综复杂的事物应该尽可能被隐藏起来 — 但是还是值得在基本层面了解它是如何工作的，以及所涉及的各种挑战。
+
+    在最简单的情形下，每一个设备将它的 CRUD 修改保存到事务日志文件中，然后将它们上传到云端。每一个修改都包括一个有序参数，比如一个时间戳，然后当设备从其他设备接收到新的更改时，作为回应，它会建立一个数据存储的本地拷贝。
+
+    如果每一个设备一直写事务日志，云端的数据会 无限制地 增长。重定基准技术可以用来压缩旧的变化集然后设置一个新的 基准线 。实际上，由所有旧变化的结束到新对象的产生代表了存储的初始化状态。这减少了历史遗留的冗余的日志。比如，如果删除了一个对象，所有与这个对象相关的修改都被删除了。
+    
+    **iCloud 和 CoreData**
+    通过Cloudkit和CoreData的一些知识，我写了一个小例子，可以帮我更好的理解它们。例子很简单：两部／多部处在同一个iCloud帐户下的设备，在某设备上修改了其中的一句话，其他设备在稍候则会同步这句话。我是这样实现的：
+    1.打开应用中的iCloud的访问权限。在ta rget的“capabilities”中打开即可。
+    2.设置CoreData的堆栈。
+    self.managerObjectContext = [[NSManagedObjectContext alloc]initWithConcurrencyType:NSMainQueueConcurrencyType];
+    self.managerObjectContext.persistentStoreCoordinator = [[NSPersistentStoreCoordinator alloc]initWithManagedObjectModel:self.managerObjectModel];
+    NSError *error;
+    [self.managerObjectContext.persistentStoreCoordinator
+addPersistentStoreWithType:NSSQLiteStoreType
+configuration:nil
+URL:self.storeURL
+options:@{NSPersistentStoreUbiquitousContentNameKey: @"MyAppStore"}
+error:&error];
+    如果想把CoreData本地存储迁移到云上，只需要配置其persistentStoreCoordinator 在addPersistentStoreWithType：方法中的options选项为：@{NSPersistentStoreUbiquitousContentNameKey: @"MyAppStore"}即可，其中value值是我们给这个存储的文件夹的名字。
+    
+    3.监听iCloud上传来的变化。
+    
+    - (void)registerForiCloudNotifications{
+    NSNotificationCenter *notificationCenter = [NSNotificationCenter defaultCenter];
+    
+    //监听不同存储间的迁移
+    [notificationCenter addObserver:self
+                           selector:@selector(storesWillChange:)
+                               name:NSPersistentStoreCoordinatorStoresWillChangeNotification
+                             object:self.managerObjectContext.persistentStoreCoordinator];
+    [notificationCenter addObserver:self
+                           selector:@selector(storesDidChange:)
+                               name:NSPersistentStoreCoordinatorStoresDidChangeNotification
+                             object:self.managerObjectContext.persistentStoreCoordinator];
+    
+    //监听NSPersistentStoreDidImportUbiquitousContentChangesNotification－－看到来自iCloud中的内容
+    [notificationCenter addObserver:self
+                           selector:@selector(persistentStoreDidImportUbiquitousContentChanges:) name:NSPersistentStoreDidImportUbiquitousContentChangesNotification
+                             object:self.managerObjectContext.persistentStoreCoordinator];
+}
+4.根据监听到的内容，作出响应的UI变化，或者做一些你想做的事情。
+
+就这样，像前面说的，我们不需要关注数据同步的细节，只需要通过API调用的形式就可以做到iCloud账号内多台设备的同步。
+
+    
+
+
+
+
